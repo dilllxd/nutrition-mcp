@@ -71,7 +71,7 @@ app.route("/", createOAuthRouter());
 
 // OAuth metadata discovery
 app.get("/.well-known/oauth-authorization-server", (c) => {
-    const baseUrl = process.env.SERVER_URL || new URL(c.req.url).origin;
+    const baseUrl = new URL(c.req.url).origin;
     return c.json({
         issuer: baseUrl,
         authorization_endpoint: `${baseUrl}/authorize`,

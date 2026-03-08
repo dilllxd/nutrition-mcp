@@ -20,6 +20,3 @@ services:
           - key: OAUTH_CLIENT_SECRET
             scope: RUN_TIME
             type: SECRET
-          - key: SERVER_URL
-            scope: RUN_TIME
-            value: ""

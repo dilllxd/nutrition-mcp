@@ -95,9 +95,7 @@ Server starts at `http://localhost:8080`. Health check: `GET /health`.
     - `SUPABASE_SECRET_KEY`
     - `OAUTH_CLIENT_ID`
     - `OAUTH_CLIENT_SECRET`
-5. Deploy — note the assigned URL (e.g. `https://nutrition-mcp-xxxxx.ondigitalocean.app`)
-6. Set `SERVER_URL` to that URL (without trailing slash)
-7. Redeploy
+5. Deploy — the app gets a public URL automatically (e.g. `https://nutrition-mcp-xxxxx.ondigitalocean.app`)
 
 ## Connect to Claude.ai
 

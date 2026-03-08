@@ -37,12 +37,9 @@ export function createOAuthRouter() {
 
     const clientId = process.env.OAUTH_CLIENT_ID;
     const clientSecret = process.env.OAUTH_CLIENT_SECRET;
-    const serverUrl = process.env.SERVER_URL;
 
-    if (!clientId || !clientSecret || !serverUrl) {
-        throw new Error(
-            "Missing OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, or SERVER_URL",
-        );
+    if (!clientId || !clientSecret) {
+        throw new Error("Missing OAUTH_CLIENT_ID or OAUTH_CLIENT_SECRET");
     }
 
     // Dynamic client registration (required by MCP spec)
@@ -112,7 +109,7 @@ export function createOAuthRouter() {
 <body>
     <h1>Nutrition MCP</h1>
     <p>Allow Claude to access your nutrition tracking data?</p>
-    <form method="POST" action="${serverUrl}/approve">
+    <form method="POST" action="/approve">
         <input type="hidden" name="session_id" value="${sessionId}" />
         <button type="submit">Approve</button>
     </form>
