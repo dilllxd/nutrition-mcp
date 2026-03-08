@@ -1,10 +1,23 @@
 import type { Context, Next } from "hono";
 import { isTokenValid } from "./supabase.js";
 
+function getBaseUrl(c: Context): string {
+    const proto = c.req.header("x-forwarded-proto") || "http";
+    const host = c.req.header("x-forwarded-host") || c.req.header("host");
+    if (host) return `${proto}://${host}`;
+    return new URL(c.req.url).origin;
+}
+
 export const authenticateBearer = async (c: Context, next: Next) => {
     const authHeader = c.req.header("Authorization");
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
+        const baseUrl = getBaseUrl(c);
+        const resourceMetadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+        c.header(
+            "WWW-Authenticate",
+            `Bearer resource_metadata="${resourceMetadataUrl}"`,
+        );
         return c.json(
             {
                 error: "unauthorized",
@@ -18,6 +31,12 @@ export const authenticateBearer = async (c: Context, next: Next) => {
     const valid = await isTokenValid(token);
 
     if (!valid) {
+        const baseUrl = getBaseUrl(c);
+        const resourceMetadataUrl = `${baseUrl}/.well-known/oauth-protected-resource`;
+        c.header(
+            "WWW-Authenticate",
+            `Bearer resource_metadata="${resourceMetadataUrl}"`,
+        );
         return c.json(
             {
                 error: "invalid_token",

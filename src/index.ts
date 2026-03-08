@@ -7,6 +7,13 @@ import { handleMcp } from "./mcp.js";
 
 const app = new Hono();
 
+function getBaseUrl(c: { req: { header: (name: string) => string | undefined; url: string } }): string {
+    const proto = c.req.header("x-forwarded-proto") || "http";
+    const host = c.req.header("x-forwarded-host") || c.req.header("host");
+    if (host) return `${proto}://${host}`;
+    return new URL(c.req.url).origin;
+}
+
 // Security headers
 app.use("*", async (c, next) => {
     await next();
@@ -66,12 +73,18 @@ app.use(
     }),
 );
 
-// OAuth routes
-app.route("/", createOAuthRouter());
+// Protected resource metadata (MCP spec requirement)
+app.get("/.well-known/oauth-protected-resource", (c) => {
+    const baseUrl = getBaseUrl(c);
+    return c.json({
+        resource: baseUrl,
+        authorization_servers: [baseUrl],
+    });
+});
 
-// OAuth metadata discovery
+// OAuth authorization server metadata
 app.get("/.well-known/oauth-authorization-server", (c) => {
-    const baseUrl = new URL(c.req.url).origin;
+    const baseUrl = getBaseUrl(c);
     return c.json({
         issuer: baseUrl,
         authorization_endpoint: `${baseUrl}/authorize`,
@@ -80,9 +93,15 @@ app.get("/.well-known/oauth-authorization-server", (c) => {
         grant_types_supported: ["authorization_code", "refresh_token"],
         response_types_supported: ["code"],
         code_challenge_methods_supported: ["S256"],
-        token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
+        token_endpoint_auth_methods_supported: [
+            "none",
+            "client_secret_post",
+        ],
     });
 });
+
+// OAuth routes
+app.route("/", createOAuthRouter());
 
 // MCP endpoint (protected)
 app.all("/mcp", authenticateBearer, handleMcp);
