@@ -1,6 +1,18 @@
 # Nutrition MCP
 
-A remote MCP (Model Context Protocol) server for personal nutrition tracking. Connect it to Claude.ai as a custom connector to log meals, track macros, and review nutrition history.
+A remote MCP server for personal nutrition tracking — log meals, track macros, and review nutrition history through conversation.
+
+## Quick Start
+
+Already hosted and ready to use — just connect it to your MCP client:
+
+```
+https://nutrition-mcp.com/mcp
+```
+
+**On Claude.ai:** Customize → Connectors → + → Add custom connector → paste the URL → Connect
+
+On first connect you'll be asked to register with an email and password. Your data persists across reconnections.
 
 ## Tech Stack
 
