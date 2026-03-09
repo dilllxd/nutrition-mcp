@@ -233,6 +233,12 @@ pre.code-block {
     line-height: 1.6;
 }
 
+/* how it works */
+.how-it-works {
+    border-top: 1px solid var(--border);
+    padding-top: 1.25rem;
+}
+
 /* hint text */
 .panel-hint {
     color: #8a7e6b;
