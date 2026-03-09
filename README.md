@@ -20,6 +20,15 @@ A remote MCP (Model Context Protocol) server for personal nutrition tracking. Co
 | `get_nutrition_summary` | Daily nutrition totals for a date range                    |
 | `delete_meal`           | Delete a meal by ID                                        |
 | `update_meal`           | Update any fields of an existing meal                      |
+| `delete_account`        | Permanently delete account and all associated data         |
+
+## Development
+
+```bash
+bun install
+cp .env.example .env   # fill in your Supabase and OAuth credentials
+bun run dev             # starts with hot reload on http://localhost:8080
+```
 
 ## Connect to Claude.ai
 
