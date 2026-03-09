@@ -18,6 +18,8 @@ On first connect you'll be asked to register with an email and password. Your da
 
 [![Demo](https://img.youtube.com/vi/Y1EHbfimQ70/maxresdefault.jpg)](https://youtube.com/shorts/Y1EHbfimQ70)
 
+Read the story behind it: [How I Replaced MyFitnessPal and Other Apps with a Single MCP Server](https://medium.com/@akutishevsky/how-i-replaced-myfitnesspal-and-other-apps-with-a-single-mcp-server-56ca5ec7d673)
+
 ## Tech Stack
 
 - **Bun** — runtime and package manager
