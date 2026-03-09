@@ -43,7 +43,8 @@ function registerTools(server: McpServer, userId: string) {
         "log_meal",
         {
             title: "Log Meal",
-            description: "Log a meal entry with nutritional information. If the user doesn't specify the quantity or portion size, ask how much they ate before estimating calories and macros. Use web search to look up accurate nutritional data when appropriate, especially for branded products or barcode scans.",
+            description:
+                "Log a meal entry with nutritional information. If the user doesn't specify the quantity or portion size, ask how much they ate before estimating calories and macros. Use web search to look up accurate nutritional data when appropriate, especially for branded products or barcode scans.",
             annotations: {
                 readOnlyHint: false,
                 destructiveHint: false,
@@ -58,10 +59,7 @@ function registerTools(server: McpServer, userId: string) {
                         "Type of meal (breakfast, lunch, dinner, or snack). Always ask the user if not provided.",
                     ),
                 calories: z.number().optional().describe("Total calories"),
-                protein_g: z
-                    .number()
-                    .optional()
-                    .describe("Protein in grams"),
+                protein_g: z.number().optional().describe("Protein in grams"),
                 carbs_g: z
                     .number()
                     .optional()
@@ -159,11 +157,7 @@ function registerTools(server: McpServer, userId: string) {
             },
         },
         async ({ start_date, end_date }) => {
-            const meals = await getMealsInRange(
-                userId,
-                start_date,
-                end_date,
-            );
+            const meals = await getMealsInRange(userId, start_date, end_date);
             if (meals.length === 0) {
                 return {
                     content: [
@@ -305,8 +299,22 @@ export const handleMcp = async (c: Context) => {
         },
     });
 
+    const proto = c.req.header("x-forwarded-proto") || "http";
+    const host =
+        c.req.header("x-forwarded-host") || c.req.header("host") || "localhost";
+    const baseUrl = `${proto}://${host}`;
+
     const server = new McpServer(
-        { name: "nutrition-mcp", version: "1.0.0" },
+        {
+            name: "nutrition-mcp",
+            version: "1.0.0",
+            icons: [
+                {
+                    src: `${baseUrl}/favicon.ico`,
+                    mimeType: "image/x-icon",
+                },
+            ],
+        },
         { capabilities: { tools: {} } },
     );
 

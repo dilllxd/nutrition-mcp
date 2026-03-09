@@ -7,7 +7,9 @@ import { handleMcp } from "./mcp.js";
 
 const app = new Hono();
 
-function getBaseUrl(c: { req: { header: (name: string) => string | undefined; url: string } }): string {
+function getBaseUrl(c: {
+    req: { header: (name: string) => string | undefined; url: string };
+}): string {
     const proto = c.req.header("x-forwarded-proto") || "http";
     const host = c.req.header("x-forwarded-host") || c.req.header("host");
     if (host) return `${proto}://${host}`;
@@ -93,10 +95,7 @@ app.get("/.well-known/oauth-authorization-server", (c) => {
         grant_types_supported: ["authorization_code", "refresh_token"],
         response_types_supported: ["code"],
         code_challenge_methods_supported: ["S256"],
-        token_endpoint_auth_methods_supported: [
-            "none",
-            "client_secret_post",
-        ],
+        token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
     });
 });
 
@@ -105,6 +104,18 @@ app.route("/", createOAuthRouter());
 
 // MCP endpoint (protected)
 app.all("/mcp", authenticateBearer, handleMcp);
+
+// Favicon endpoint
+app.get("/favicon.ico", async (c) => {
+    try {
+        const file = Bun.file("./public/favicon.ico");
+        return c.body(await file.arrayBuffer(), 200, {
+            "Content-Type": "image/x-icon",
+        });
+    } catch {
+        return c.notFound();
+    }
+});
 
 // Health check
 app.get("/health", (c) => c.text("ok"));

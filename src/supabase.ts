@@ -7,9 +7,7 @@ export function getSupabase(): SupabaseClient {
         const url = process.env.SUPABASE_URL;
         const key = process.env.SUPABASE_SECRET_KEY;
         if (!url || !key) {
-            throw new Error(
-                "Missing SUPABASE_URL or SUPABASE_SECRET_KEY",
-            );
+            throw new Error("Missing SUPABASE_URL or SUPABASE_SECRET_KEY");
         }
         supabase = createClient(url, key);
     }
@@ -155,10 +153,7 @@ export async function updateMeal(
 
 // ---------- OAuth tokens ----------
 
-export async function storeToken(
-    token: string,
-    userId: string,
-): Promise<void> {
+export async function storeToken(token: string, userId: string): Promise<void> {
     const expiresAt = new Date(
         Date.now() + 365 * 24 * 60 * 60 * 1000,
     ).toISOString();
@@ -175,9 +170,7 @@ export async function storeToken(
     if (error) throw new Error(`Failed to store token: ${error.message}`);
 }
 
-export async function getUserIdByToken(
-    token: string,
-): Promise<string | null> {
+export async function getUserIdByToken(token: string): Promise<string | null> {
     const { data, error } = await getSupabase()
         .from("oauth_tokens")
         .select("user_id")
