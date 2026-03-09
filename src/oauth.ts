@@ -4,7 +4,10 @@ import {
     storeToken,
     storeAuthCode,
     consumeAuthCode,
-    createUser,
+    signUpUser,
+    signInUser,
+    storeRefreshToken,
+    consumeRefreshToken,
 } from "./supabase.js";
 
 const SESSION_TTL_MS = 10 * 60 * 1000;
@@ -35,6 +38,14 @@ function base64URLEncode(buffer: Buffer): string {
         .replace(/\+/g, "-")
         .replace(/\//g, "_")
         .replace(/=/g, "");
+}
+
+function escapeHtml(str: string): string {
+    return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
 }
 
 export function createOAuthRouter() {
@@ -85,7 +96,7 @@ export function createOAuthRouter() {
 
         cleanExpiredSessions();
 
-        // Store session and show approval page
+        // Store session and show login page
         const sessionId = crypto.randomUUID();
         sessions.set(sessionId, {
             session: {
@@ -97,39 +108,18 @@ export function createOAuthRouter() {
             expiresAt: Date.now() + SESSION_TTL_MS,
         });
 
-        // Return a simple HTML approval page
-        const html = `<!DOCTYPE html>
-<html>
-<head>
-    <title>Authorize Nutrition MCP</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        body { font-family: system-ui, sans-serif; max-width: 400px; margin: 80px auto; padding: 0 20px; text-align: center; }
-        h1 { font-size: 1.5rem; }
-        p { color: #666; margin: 1rem 0 2rem; }
-        button { background: #2563eb; color: white; border: none; padding: 12px 32px; border-radius: 8px; font-size: 1rem; cursor: pointer; }
-        button:hover { background: #1d4ed8; }
-    </style>
-</head>
-<body>
-    <h1>Nutrition MCP</h1>
-    <p>Allow Claude to access your nutrition tracking data?</p>
-    <form method="POST" action="/approve">
-        <input type="hidden" name="session_id" value="${sessionId}" />
-        <button type="submit">Approve</button>
-    </form>
-</body>
-</html>`;
-
-        return c.html(html);
+        return c.html(loginPage(sessionId));
     });
 
-    // Approval endpoint — user clicks "Approve"
+    // Login/register endpoint — user submits email + password
     oauth.post("/approve", async (c) => {
         const body = await c.req.parseBody();
         const sessionId = body.session_id as string;
+        const email = (body.email as string)?.trim().toLowerCase();
+        const password = body.password as string;
+        const action = body.action as string;
 
-        if (!sessionId) {
+        if (!sessionId || !email || !password) {
             return c.json({ error: "invalid_request" }, 400);
         }
 
@@ -139,14 +129,28 @@ export function createOAuthRouter() {
             return c.json({ error: "session_expired" }, 400);
         }
 
+        let userId: string;
+        try {
+            if (action === "register") {
+                userId = await signUpUser(email, password);
+            } else {
+                userId = await signInUser(email, password);
+            }
+        } catch (err: unknown) {
+            const message =
+                err instanceof Error ? err.message : "Authentication failed";
+            return c.html(loginPage(sessionId, message), 400);
+        }
+
         const session = entry.session;
         sessions.delete(sessionId);
 
-        // Generate authorization code
+        // Generate authorization code linked to the authenticated user
         const authCode = crypto.randomUUID();
         await storeAuthCode(
             authCode,
             session.redirectUri,
+            userId,
             session.codeChallenge,
         );
 
@@ -169,21 +173,27 @@ export function createOAuthRouter() {
         const reqClientSecret = body.client_secret as string | undefined;
 
         if (grantType === "refresh_token") {
-            // For refresh_token grant, create a new user + token
             const refreshToken = body.refresh_token as string;
             if (!refreshToken) {
                 return c.json({ error: "invalid_request" }, 400);
             }
 
-            const userId = await createUser();
-            const newToken = crypto.randomUUID();
-            await storeToken(newToken, userId);
+            // Look up the existing user from the refresh token
+            const userId = await consumeRefreshToken(refreshToken);
+            if (!userId) {
+                return c.json({ error: "invalid_grant" }, 400);
+            }
+
+            const newAccessToken = crypto.randomUUID();
+            const newRefreshToken = crypto.randomUUID();
+            await storeToken(newAccessToken, userId);
+            await storeRefreshToken(newRefreshToken, userId);
 
             return c.json({
-                access_token: newToken,
+                access_token: newAccessToken,
                 token_type: "Bearer",
                 expires_in: 365 * 24 * 60 * 60,
-                refresh_token: crypto.randomUUID(),
+                refresh_token: newRefreshToken,
             });
         }
 
@@ -235,12 +245,11 @@ export function createOAuthRouter() {
             }
         }
 
-        // Create user and issue access token
-        const userId = await createUser();
+        // Issue tokens linked to the authenticated user
         const accessToken = crypto.randomUUID();
-        await storeToken(accessToken, userId);
-
         const refreshToken = crypto.randomUUID();
+        await storeToken(accessToken, authCodeData.user_id);
+        await storeRefreshToken(refreshToken, authCodeData.user_id);
 
         return c.json({
             access_token: accessToken,
@@ -251,4 +260,52 @@ export function createOAuthRouter() {
     });
 
     return oauth;
+}
+
+function loginPage(sessionId: string, error?: string): string {
+    const errorHtml = error ? `<p class="error">${escapeHtml(error)}</p>` : "";
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+    <title>Nutrition MCP — Sign In</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        body { font-family: system-ui, sans-serif; max-width: 400px; margin: 80px auto; padding: 0 20px; }
+        h1 { font-size: 1.5rem; text-align: center; }
+        p.subtitle { color: #666; text-align: center; margin: 0.5rem 0 2rem; }
+        label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.25rem; }
+        input[type="email"], input[type="password"] {
+            width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px;
+            font-size: 1rem; margin-bottom: 1rem; box-sizing: border-box;
+        }
+        .buttons { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+        button {
+            flex: 1; padding: 12px; border: none; border-radius: 8px;
+            font-size: 1rem; cursor: pointer; font-weight: 500;
+        }
+        .btn-primary { background: #2563eb; color: white; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-secondary { background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; }
+        .btn-secondary:hover { background: #e5e7eb; }
+        .error { color: #dc2626; background: #fef2f2; border: 1px solid #fecaca; padding: 10px; border-radius: 6px; text-align: center; margin-bottom: 1rem; }
+    </style>
+</head>
+<body>
+    <h1>Nutrition MCP</h1>
+    <p class="subtitle">Sign in or create an account to connect</p>
+    ${errorHtml}
+    <form method="POST" action="/approve">
+        <input type="hidden" name="session_id" value="${escapeHtml(sessionId)}" />
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email" required autocomplete="email" />
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" required minlength="6" autocomplete="current-password" />
+        <div class="buttons">
+            <button type="submit" name="action" value="login" class="btn-primary">Sign In</button>
+            <button type="submit" name="action" value="register" class="btn-secondary">Register</button>
+        </div>
+    </form>
+</body>
+</html>`;
 }

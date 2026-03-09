@@ -14,17 +14,33 @@ export function getSupabase(): SupabaseClient {
     return supabase;
 }
 
-// ---------- Users ----------
+// ---------- Auth ----------
 
-export async function createUser(): Promise<string> {
-    const { data, error } = await getSupabase()
-        .from("users")
-        .insert({})
-        .select("id")
-        .single();
+export async function signUpUser(
+    email: string,
+    password: string,
+): Promise<string> {
+    const { data, error } = await getSupabase().auth.signUp({
+        email,
+        password,
+    });
 
-    if (error) throw new Error(`Failed to create user: ${error.message}`);
-    return data.id as string;
+    if (error) throw new Error(error.message);
+    if (!data.user) throw new Error("Sign-up failed");
+    return data.user.id;
+}
+
+export async function signInUser(
+    email: string,
+    password: string,
+): Promise<string> {
+    const { data, error } = await getSupabase().auth.signInWithPassword({
+        email,
+        password,
+    });
+
+    if (error) throw new Error(error.message);
+    return data.user.id;
 }
 
 // ---------- Meals ----------
@@ -187,6 +203,7 @@ export async function getUserIdByToken(token: string): Promise<string | null> {
 export async function storeAuthCode(
     code: string,
     redirectUri: string,
+    userId: string,
     codeChallenge?: string,
 ): Promise<void> {
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
@@ -196,6 +213,7 @@ export async function storeAuthCode(
         .insert({
             code,
             redirect_uri: redirectUri,
+            user_id: userId,
             code_challenge: codeChallenge ?? null,
             expires_at: expiresAt,
         });
@@ -206,6 +224,7 @@ export async function storeAuthCode(
 export interface AuthCodeData {
     code: string;
     redirect_uri: string;
+    user_id: string;
     code_challenge: string | null;
 }
 
@@ -224,4 +243,39 @@ export async function consumeAuthCode(
 
     if (error || !data) return null;
     return data as AuthCodeData;
+}
+
+// ---------- Refresh tokens ----------
+
+export async function storeRefreshToken(
+    token: string,
+    userId: string,
+): Promise<void> {
+    const expiresAt = new Date(
+        Date.now() + 365 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const { error } = await getSupabase().from("refresh_tokens").insert({
+        token,
+        user_id: userId,
+        expires_at: expiresAt,
+    });
+
+    if (error)
+        throw new Error(`Failed to store refresh token: ${error.message}`);
+}
+
+export async function consumeRefreshToken(
+    token: string,
+): Promise<string | null> {
+    const { data, error } = await getSupabase()
+        .from("refresh_tokens")
+        .delete()
+        .eq("token", token)
+        .gt("expires_at", new Date().toISOString())
+        .select("user_id")
+        .single();
+
+    if (error || !data) return null;
+    return data.user_id as string;
 }

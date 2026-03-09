@@ -7,7 +7,7 @@ A remote MCP (Model Context Protocol) server for personal nutrition tracking. Co
 - **Bun** — runtime and package manager
 - **Hono** — HTTP framework
 - **MCP SDK** — Model Context Protocol over Streamable HTTP
-- **Supabase** — PostgreSQL database
+- **Supabase** — PostgreSQL database + user authentication
 - **OAuth 2.0** — authentication for Claude.ai connectors
 
 ## MCP Tools
@@ -27,10 +27,13 @@ A remote MCP (Model Context Protocol) server for personal nutrition tracking. Co
 
 Create the following tables in your Supabase project:
 
+Enable **Email Auth** in your Supabase project (Authentication → Providers → Email). Then create the following tables:
+
 ```sql
 -- Meals table
 create table meals (
   id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id),
   logged_at timestamptz not null default now(),
   meal_type text check (meal_type in ('breakfast', 'lunch', 'dinner', 'snack')),
   description text not null,
@@ -44,6 +47,7 @@ create table meals (
 -- OAuth tokens (long-lived access tokens)
 create table oauth_tokens (
   token text primary key,
+  user_id uuid not null references auth.users(id),
   expires_at timestamptz not null,
   created_at timestamptz not null default now()
 );
@@ -52,7 +56,16 @@ create table oauth_tokens (
 create table auth_codes (
   code text primary key,
   redirect_uri text not null,
+  user_id uuid not null references auth.users(id),
   code_challenge text,
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
+
+-- Refresh tokens
+create table refresh_tokens (
+  token text primary key,
+  user_id uuid not null references auth.users(id),
   expires_at timestamptz not null,
   created_at timestamptz not null default now()
 );
@@ -106,18 +119,18 @@ Server starts at `http://localhost:8080`. Health check: `GET /health`.
     - **MCP Server URL**: `https://your-server.com/mcp`
     - **OAuth Client ID**: your `OAUTH_CLIENT_ID` value
     - **OAuth Client Secret**: your `OAUTH_CLIENT_SECRET` value
-4. Click **Connect** — you'll be redirected to approve access
-5. After approval, Claude can use your nutrition tools
+4. Click **Connect** — you'll be redirected to sign in or register
+5. After signing in, Claude can use your nutrition tools. If you reconnect later, sign in with the same email and password to keep your data.
 
 ## API Endpoints
 
-| Endpoint                                      | Description                               |
-| --------------------------------------------- | ----------------------------------------- |
-| `GET /health`                                 | Health check                              |
-| `GET /.well-known/oauth-authorization-server` | OAuth metadata discovery                  |
-| `POST /register`                              | Dynamic client registration               |
-| `GET /authorize`                              | OAuth authorization (shows approval page) |
-| `POST /approve`                               | User approval handler                     |
-| `POST /token`                                 | Token exchange                            |
-| `GET /favicon.ico`                            | Server icon                               |
-| `ALL /mcp`                                    | MCP endpoint (authenticated)              |
+| Endpoint                                      | Description                            |
+| --------------------------------------------- | -------------------------------------- |
+| `GET /health`                                 | Health check                           |
+| `GET /.well-known/oauth-authorization-server` | OAuth metadata discovery               |
+| `POST /register`                              | Dynamic client registration            |
+| `GET /authorize`                              | OAuth authorization (shows login page) |
+| `POST /approve`                               | Login/register handler                 |
+| `POST /token`                                 | Token exchange                         |
+| `GET /favicon.ico`                            | Server icon                            |
+| `ALL /mcp`                                    | MCP endpoint (authenticated)           |
