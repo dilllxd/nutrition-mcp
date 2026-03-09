@@ -119,4 +119,5 @@ Server starts at `http://localhost:8080`. Health check: `GET /health`.
 | `GET /authorize`                              | OAuth authorization (shows approval page) |
 | `POST /approve`                               | User approval handler                     |
 | `POST /token`                                 | Token exchange                            |
+| `GET /favicon.ico`                            | Server icon                               |
 | `ALL /mcp`                                    | MCP endpoint (authenticated)              |

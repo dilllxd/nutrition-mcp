@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-nutrition-mcp is a Model Context Protocol (MCP) server for nutrition-related functionality, built with Bun and TypeScript. Entry point is `src/index.ts`.
+nutrition-mcp is a Model Context Protocol (MCP) server for nutrition-related functionality, built with Bun and TypeScript. Entry point is `src/index.ts`. Server version is defined in `src/mcp.ts` (in the `McpServer` constructor). The server icon is at `public/favicon.ico`.
 
 ## Commands
 
