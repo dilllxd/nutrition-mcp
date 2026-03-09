@@ -167,6 +167,46 @@ export async function updateMeal(
     return data as Meal;
 }
 
+// ---------- Delete all user data ----------
+
+export async function deleteAllUserData(userId: string): Promise<void> {
+    const sb = getSupabase();
+
+    const { error: mealsErr } = await sb
+        .from("meals")
+        .delete()
+        .eq("user_id", userId);
+    if (mealsErr)
+        throw new Error(`Failed to delete meals: ${mealsErr.message}`);
+
+    const { error: tokensErr } = await sb
+        .from("oauth_tokens")
+        .delete()
+        .eq("user_id", userId);
+    if (tokensErr)
+        throw new Error(`Failed to delete tokens: ${tokensErr.message}`);
+
+    const { error: refreshErr } = await sb
+        .from("refresh_tokens")
+        .delete()
+        .eq("user_id", userId);
+    if (refreshErr)
+        throw new Error(
+            `Failed to delete refresh tokens: ${refreshErr.message}`,
+        );
+
+    const { error: authErr } = await sb
+        .from("auth_codes")
+        .delete()
+        .eq("user_id", userId);
+    if (authErr)
+        throw new Error(`Failed to delete auth codes: ${authErr.message}`);
+
+    const { error: userErr } = await sb.auth.admin.deleteUser(userId);
+    if (userErr)
+        throw new Error(`Failed to delete user: ${userErr.message}`);
+}
+
 // ---------- OAuth tokens ----------
 
 export async function storeToken(token: string, userId: string): Promise<void> {

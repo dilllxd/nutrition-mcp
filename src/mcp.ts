@@ -8,6 +8,7 @@ import {
     getMealsInRange,
     deleteMeal,
     updateMeal,
+    deleteAllUserData,
     type Meal,
 } from "./supabase.js";
 
@@ -259,6 +260,48 @@ function registerTools(server: McpServer, userId: string) {
                     {
                         type: "text",
                         text: `Meal updated:\n${formatMeal(meal)}`,
+                    },
+                ],
+            };
+        },
+    );
+    server.registerTool(
+        "delete_account",
+        {
+            title: "Delete Account",
+            description:
+                "Permanently delete the user's account and all associated data (meals, tokens, auth). This action is irreversible. Always confirm with the user before calling this tool.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: true,
+                idempotentHint: false,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                confirm: z
+                    .boolean()
+                    .describe(
+                        "Must be true to confirm deletion. Always ask the user for explicit confirmation before setting this to true.",
+                    ),
+            },
+        },
+        async ({ confirm }) => {
+            if (!confirm) {
+                return {
+                    content: [
+                        {
+                            type: "text",
+                            text: "Account deletion cancelled. No data was removed.",
+                        },
+                    ],
+                };
+            }
+            await deleteAllUserData(userId);
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: "Your account and all associated data have been permanently deleted.",
                     },
                 ],
             };
