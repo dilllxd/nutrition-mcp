@@ -24,7 +24,7 @@ app.use("*", async (c, next) => {
     if (!c.res.headers.get("Content-Security-Policy")) {
         c.header(
             "Content-Security-Policy",
-            "default-src 'none'; frame-ancestors 'none'",
+            "default-src 'self'; style-src 'self' https://cdn.jsdelivr.net; img-src 'self'; frame-ancestors 'none'",
         );
     }
     c.header("Referrer-Policy", "no-referrer");
