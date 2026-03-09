@@ -22,6 +22,72 @@ A remote MCP (Model Context Protocol) server for personal nutrition tracking. Co
 | `update_meal`           | Update any fields of an existing meal                      |
 | `delete_account`        | Permanently delete account and all associated data         |
 
+## Supabase Setup
+
+1. Create a [Supabase](https://supabase.com) project
+2. Enable **Email Auth** (Authentication → Providers → Email) and disable email confirmation
+3. Run the following SQL in the SQL Editor:
+
+```sql
+-- Meals
+CREATE TABLE meals (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES auth.users(id),
+    logged_at timestamptz NOT NULL DEFAULT now(),
+    meal_type text CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
+    description text NOT NULL,
+    calories integer,
+    protein_g numeric,
+    carbs_g numeric,
+    fat_g numeric,
+    notes text
+);
+
+-- OAuth access tokens
+CREATE TABLE oauth_tokens (
+    token text PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES auth.users(id),
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- OAuth authorization codes (short-lived, single-use)
+CREATE TABLE auth_codes (
+    code text PRIMARY KEY,
+    redirect_uri text NOT NULL,
+    user_id uuid NOT NULL REFERENCES auth.users(id),
+    code_challenge text,
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Refresh tokens
+CREATE TABLE refresh_tokens (
+    token text PRIMARY KEY,
+    user_id uuid NOT NULL REFERENCES auth.users(id),
+    expires_at timestamptz NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Enable Row Level Security on all tables
+ALTER TABLE meals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE oauth_tokens ENABLE ROW LEVEL SECURITY;
+ALTER TABLE auth_codes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
+
+-- Allow access for the service role
+CREATE POLICY "Allow all for service role" ON meals
+    FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for service role" ON oauth_tokens
+    FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for service role" ON auth_codes
+    FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for service role" ON refresh_tokens
+    FOR ALL USING (true) WITH CHECK (true);
+```
+
+4. Copy the **service role key** from Project Settings → API and use it as `SUPABASE_SECRET_KEY`
+
 ## Development
 
 ```bash
