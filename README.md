@@ -30,15 +30,16 @@ Read the story behind it: [How I Replaced MyFitnessPal and Other Apps with a Sin
 
 ## MCP Tools
 
-| Tool                    | Description                                                |
-| ----------------------- | ---------------------------------------------------------- |
-| `log_meal`              | Log a meal with description, type, calories, macros, notes |
-| `get_meals_today`       | Get all meals logged today                                 |
-| `get_meals_by_date`     | Get meals for a specific date (YYYY-MM-DD)                 |
-| `get_nutrition_summary` | Daily nutrition totals for a date range                    |
-| `delete_meal`           | Delete a meal by ID                                        |
-| `update_meal`           | Update any fields of an existing meal                      |
-| `delete_account`        | Permanently delete account and all associated data         |
+| Tool                      | Description                                                |
+| ------------------------- | ---------------------------------------------------------- |
+| `log_meal`                | Log a meal with description, type, calories, macros, notes |
+| `get_meals_today`         | Get all meals logged today                                 |
+| `get_meals_by_date`       | Get meals for a specific date (YYYY-MM-DD)                 |
+| `get_nutrition_summary`   | Daily nutrition totals for a date range                    |
+| `delete_meal`             | Delete a meal by ID                                        |
+| `update_meal`             | Update any fields of an existing meal                      |
+| `get_meals_by_date_range` | Get meals between two dates (inclusive)                    |
+| `delete_account`          | Permanently delete account and all associated data         |
 
 ## Supabase Setup
 
@@ -87,6 +88,25 @@ CREATE TABLE refresh_tokens (
     created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Tool analytics
+CREATE TABLE tool_analytics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id VARCHAR(255) NOT NULL,
+    tool_name VARCHAR(100) NOT NULL,
+    success BOOLEAN NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    error_category VARCHAR(50),
+    date_range_days INTEGER,
+    mcp_session_id VARCHAR(255),
+    invoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_tool_analytics_user_id ON tool_analytics(user_id);
+CREATE INDEX idx_tool_analytics_tool_name ON tool_analytics(tool_name);
+CREATE INDEX idx_tool_analytics_invoked_at ON tool_analytics(invoked_at);
+CREATE INDEX idx_tool_analytics_user_tool ON tool_analytics(user_id, tool_name);
+
 -- Enable Row Level Security on all tables
 ALTER TABLE meals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE oauth_tokens ENABLE ROW LEVEL SECURITY;
@@ -102,6 +122,9 @@ CREATE POLICY "Allow all for service role" ON auth_codes
     FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow all for service role" ON refresh_tokens
     FOR ALL USING (true) WITH CHECK (true);
+ALTER TABLE tool_analytics ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Service role has full access to tool_analytics" ON tool_analytics
+    FOR ALL TO service_role USING (true) WITH CHECK (true);
 ```
 
 4. Copy the **service role key** from Project Settings → API and use it as `SUPABASE_SECRET_KEY`
