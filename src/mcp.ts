@@ -21,8 +21,67 @@ const sessions = new Map<
     }
 >();
 
-function todayDate(): string {
-    return new Date().toISOString().slice(0, 10);
+/**
+ * Returns the current date as YYYY-MM-DD in the given IANA timezone.
+ * Falls back to UTC if no timezone is provided.
+ */
+function todayDate(timezone?: string): string {
+    if (!timezone) {
+        return new Date().toISOString().slice(0, 10);
+    }
+    // en-CA locale uses YYYY-MM-DD format natively
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(new Date());
+}
+
+/**
+ * Returns the current date-time as a timezone-aware ISO 8601 string
+ * (e.g. "2026-03-24T20:09:00-04:00") in the given IANA timezone.
+ * Falls back to UTC ISO string if no timezone is provided.
+ */
+function nowInTimezone(timezone?: string): string {
+    if (!timezone) {
+        return new Date().toISOString();
+    }
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    }).formatToParts(now);
+
+    const get = (type: string) =>
+        parts.find((p) => p.type === type)?.value ?? "00";
+
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    // hour12: false can return "24" at midnight — normalize to "00"
+    const hour = get("hour") === "24" ? "00" : get("hour");
+    const minute = get("minute");
+    const second = get("second");
+
+    // Compute the UTC offset for this timezone at this moment
+    const utcDate = new Date(
+        `${year}-${month}-${day}T${hour}:${minute}:${second}`,
+    );
+    const offsetMs = now.getTime() - utcDate.getTime();
+    const offsetTotalMinutes = Math.round(offsetMs / 60000);
+    const sign = offsetTotalMinutes >= 0 ? "+" : "-";
+    const absMinutes = Math.abs(offsetTotalMinutes);
+    const offsetH = String(Math.floor(absMinutes / 60)).padStart(2, "0");
+    const offsetM = String(absMinutes % 60).padStart(2, "0");
+
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}${sign}${offsetH}:${offsetM}`;
 }
 
 function formatMeal(meal: Meal): string {
@@ -73,6 +132,12 @@ function registerTools(server: McpServer, userId: string) {
                     .describe(
                         "ISO 8601 timestamp (defaults to now). If you don't know the current date or time, ask the user before calling this tool.",
                     ),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string for the user's local timezone (e.g. 'America/New_York'). Used to determine the correct local date and time when logged_at is not provided.",
+                    ),
                 notes: z.string().optional().describe("Additional notes"),
             },
         },
@@ -106,12 +171,24 @@ function registerTools(server: McpServer, userId: string) {
                 idempotentHint: true,
                 openWorldHint: false,
             },
+            inputSchema: {
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string for the user's local timezone (e.g. 'America/New_York'). Required to correctly determine today's date.",
+                    ),
+            },
         },
-        async () => {
+        async ({ timezone }) => {
             return withAnalytics(
                 "get_meals_today",
                 async () => {
-                    const meals = await getMealsByDate(userId, todayDate());
+                    const meals = await getMealsByDate(
+                        userId,
+                        todayDate(timezone),
+                        timezone,
+                    );
                     if (meals.length === 0) {
                         return {
                             content: [
@@ -143,13 +220,19 @@ function registerTools(server: McpServer, userId: string) {
             },
             inputSchema: {
                 date: z.string().describe("Date in YYYY-MM-DD format"),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string for the user's local timezone (e.g. 'America/New_York'). Used to correctly bound the day's start and end times.",
+                    ),
             },
         },
-        async ({ date }) => {
+        async ({ date, timezone }) => {
             return withAnalytics(
                 "get_meals_by_date",
                 async () => {
-                    const meals = await getMealsByDate(userId, date);
+                    const meals = await getMealsByDate(userId, date, timezone);
                     if (meals.length === 0) {
                         return {
                             content: [
@@ -184,9 +267,15 @@ function registerTools(server: McpServer, userId: string) {
             inputSchema: {
                 start_date: z.string().describe("Start date (YYYY-MM-DD)"),
                 end_date: z.string().describe("End date (YYYY-MM-DD)"),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string for the user's local timezone (e.g. 'America/New_York'). Used to correctly bound day start/end times.",
+                    ),
             },
         },
-        async ({ start_date, end_date }) => {
+        async ({ start_date, end_date, timezone }) => {
             return withAnalytics(
                 "get_meals_by_date_range",
                 async () => {
@@ -194,6 +283,7 @@ function registerTools(server: McpServer, userId: string) {
                         userId,
                         start_date,
                         end_date,
+                        timezone,
                     );
                     if (meals.length === 0) {
                         return {
@@ -255,9 +345,15 @@ function registerTools(server: McpServer, userId: string) {
             inputSchema: {
                 start_date: z.string().describe("Start date (YYYY-MM-DD)"),
                 end_date: z.string().describe("End date (YYYY-MM-DD)"),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string for the user's local timezone (e.g. 'America/New_York'). Used to correctly bound day start/end times.",
+                    ),
             },
         },
-        async ({ start_date, end_date }) => {
+        async ({ start_date, end_date, timezone }) => {
             return withAnalytics(
                 "get_nutrition_summary",
                 async () => {
@@ -265,6 +361,7 @@ function registerTools(server: McpServer, userId: string) {
                         userId,
                         start_date,
                         end_date,
+                        timezone,
                     );
                     if (meals.length === 0) {
                         return {
@@ -499,3 +596,6 @@ export const handleMcp = async (c: Context) => {
 
     return transport.handleRequest(c.req.raw);
 };
+
+// Export nowInTimezone for use in supabase.ts
+export { nowInTimezone };

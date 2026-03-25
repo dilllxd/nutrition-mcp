@@ -43,6 +43,85 @@ export async function signInUser(
     return data.user.id;
 }
 
+// ---------- Timezone helpers ----------
+
+/**
+ * Returns the UTC offset string (e.g. "+05:30", "-04:00") for a given
+ * IANA timezone at the current moment.
+ */
+function getUtcOffsetString(timezone: string): string {
+    const now = new Date();
+    // Format the date in the target timezone to extract local time parts
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    }).formatToParts(now);
+
+    const get = (type: string) =>
+        parts.find((p) => p.type === type)?.value ?? "00";
+
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    const hour = get("hour") === "24" ? "00" : get("hour");
+    const minute = get("minute");
+    const second = get("second");
+
+    // Compute offset: difference between UTC and the interpreted local time
+    const localAsIfUtc = new Date(
+        `${year}-${month}-${day}T${hour}:${minute}:${second}Z`,
+    );
+    const offsetMs = localAsIfUtc.getTime() - now.getTime();
+    const offsetTotalMinutes = Math.round(offsetMs / 60000);
+    const sign = offsetTotalMinutes >= 0 ? "+" : "-";
+    const absMinutes = Math.abs(offsetTotalMinutes);
+    const offsetH = String(Math.floor(absMinutes / 60)).padStart(2, "0");
+    const offsetM = String(absMinutes % 60).padStart(2, "0");
+
+    return `${sign}${offsetH}:${offsetM}`;
+}
+
+/**
+ * Returns a timezone-aware ISO 8601 timestamp for "now" in the given
+ * IANA timezone (e.g. "2026-03-24T20:09:00-04:00"). Falls back to UTC
+ * ISO string when no timezone is provided.
+ */
+function nowInTimezone(timezone?: string): string {
+    if (!timezone) {
+        return new Date().toISOString();
+    }
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-CA", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    }).formatToParts(now);
+
+    const get = (type: string) =>
+        parts.find((p) => p.type === type)?.value ?? "00";
+
+    const year = get("year");
+    const month = get("month");
+    const day = get("day");
+    const hour = get("hour") === "24" ? "00" : get("hour");
+    const minute = get("minute");
+    const second = get("second");
+
+    const offset = getUtcOffsetString(timezone);
+    return `${year}-${month}-${day}T${hour}:${minute}:${second}${offset}`;
+}
+
 // ---------- Meals ----------
 
 export interface Meal {
@@ -66,6 +145,7 @@ export interface MealInput {
     carbs_g?: number;
     fat_g?: number;
     logged_at?: string;
+    timezone?: string;
     notes?: string;
 }
 
@@ -73,6 +153,10 @@ export async function insertMeal(
     userId: string,
     input: MealInput,
 ): Promise<Meal> {
+    // Use the provided timestamp if given; otherwise generate a timezone-aware
+    // "now" timestamp so the stored value reflects local time, not UTC.
+    const loggedAt = input.logged_at ?? nowInTimezone(input.timezone);
+
     const { data, error } = await getSupabase()
         .from("meals")
         .insert({
@@ -83,7 +167,7 @@ export async function insertMeal(
             protein_g: input.protein_g ?? null,
             carbs_g: input.carbs_g ?? null,
             fat_g: input.fat_g ?? null,
-            logged_at: input.logged_at ?? new Date().toISOString(),
+            logged_at: loggedAt,
             notes: input.notes ?? null,
         })
         .select()
@@ -96,9 +180,14 @@ export async function insertMeal(
 export async function getMealsByDate(
     userId: string,
     date: string,
+    timezone?: string,
 ): Promise<Meal[]> {
-    const startOfDay = `${date}T00:00:00`;
-    const endOfDay = `${date}T23:59:59`;
+    // Append the timezone offset so Postgres compares in the correct local
+    // window. Falls back to treating the bounds as UTC (existing behaviour)
+    // when no timezone is supplied.
+    const offset = timezone ? getUtcOffsetString(timezone) : "";
+    const startOfDay = `${date}T00:00:00${offset}`;
+    const endOfDay = `${date}T23:59:59${offset}`;
 
     const { data, error } = await getSupabase()
         .from("meals")
@@ -116,13 +205,15 @@ export async function getMealsInRange(
     userId: string,
     startDate: string,
     endDate: string,
+    timezone?: string,
 ): Promise<Meal[]> {
+    const offset = timezone ? getUtcOffsetString(timezone) : "";
     const { data, error } = await getSupabase()
         .from("meals")
         .select("*")
         .eq("user_id", userId)
-        .gte("logged_at", `${startDate}T00:00:00`)
-        .lte("logged_at", `${endDate}T23:59:59`)
+        .gte("logged_at", `${startDate}T00:00:00${offset}`)
+        .lte("logged_at", `${endDate}T23:59:59${offset}`)
         .order("logged_at", { ascending: true });
 
     if (error) throw new Error(`Failed to get meals: ${error.message}`);
