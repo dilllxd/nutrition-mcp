@@ -112,3 +112,26 @@ CREATE TABLE IF NOT EXISTS meal_plan (
 );
 
 CREATE INDEX IF NOT EXISTS idx_meal_plan_user_date ON meal_plan(user_id, date);
+
+-- Weight logs
+CREATE TABLE IF NOT EXISTS weight_logs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    weight_lb numeric NOT NULL,
+    date date NOT NULL,
+    notes text,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_weight_logs_user_date ON weight_logs(user_id, date);
+
+-- Water logs
+CREATE TABLE IF NOT EXISTS water_logs (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    amount_fl_oz numeric NOT NULL,
+    date date NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_water_logs_user_date ON water_logs(user_id, date);

@@ -77,10 +77,7 @@ export function createOAuthRouter() {
         const body = await c.req.json();
 
         // Fire-and-forget: track who registers
-        registerClient(
-            body.client_name ?? null,
-            body.redirect_uris ?? [],
-        );
+        registerClient(body.client_name ?? null, body.redirect_uris ?? []);
 
         return c.json({
             client_id: clientId,
