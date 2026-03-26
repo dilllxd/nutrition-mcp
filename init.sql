@@ -73,3 +73,42 @@ CREATE TABLE IF NOT EXISTS registered_clients (
     redirect_uris jsonb NOT NULL DEFAULT '[]',
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- Recipes
+CREATE TABLE IF NOT EXISTS recipes (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    description text,
+    ingredients jsonb NOT NULL DEFAULT '[]',
+    steps jsonb NOT NULL DEFAULT '[]',
+    tags jsonb NOT NULL DEFAULT '[]',
+    servings integer NOT NULL DEFAULT 1,
+    calories_per_serving numeric,
+    protein_g_per_serving numeric,
+    carbs_g_per_serving numeric,
+    fat_g_per_serving numeric,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_recipes_user_id ON recipes(user_id);
+
+-- Meal plan
+CREATE TABLE IF NOT EXISTS meal_plan (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date date NOT NULL,
+    slot text NOT NULL CHECK (slot IN ('breakfast', 'lunch', 'dinner', 'snack')),
+    recipe_id uuid REFERENCES recipes(id) ON DELETE SET NULL,
+    servings numeric NOT NULL DEFAULT 1,
+    custom_description text,
+    calories numeric,
+    protein_g numeric,
+    carbs_g numeric,
+    fat_g numeric,
+    notes text,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_meal_plan_user_date ON meal_plan(user_id, date);

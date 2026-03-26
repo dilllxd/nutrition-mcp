@@ -9,7 +9,20 @@ import {
     deleteMeal,
     updateMeal,
     deleteAllUserData,
+    insertRecipe,
+    getRecipes,
+    getRecipeById,
+    updateRecipe,
+    deleteRecipe,
+    insertMealPlan,
+    getMealPlanByDate,
+    getMealPlanByDateRange,
+    getMealPlanById,
+    deleteMealPlan,
+    calculateScaledMacros,
     type Meal,
+    type Recipe,
+    type MealPlan,
 } from "./db.js";
 import { withAnalytics } from "./analytics.js";
 
@@ -49,6 +62,56 @@ function formatMeal(meal: Meal): string {
         meal.carbs_g != null ? `Carbs: ${meal.carbs_g}g` : null,
         meal.fat_g != null ? `Fat: ${meal.fat_g}g` : null,
         meal.notes ? `Notes: ${meal.notes}` : null,
+    ];
+    return parts.filter(Boolean).join("\n");
+}
+
+function formatRecipe(recipe: Recipe): string {
+    const parts = [
+        `ID: ${recipe.id}`,
+        `Name: ${recipe.name}`,
+        recipe.description ? `Description: ${recipe.description}` : null,
+        `Servings: ${recipe.servings}`,
+        recipe.tags && recipe.tags.length > 0
+            ? `Tags: ${recipe.tags.join(", ")}`
+            : null,
+        recipe.ingredients && recipe.ingredients.length > 0
+            ? `Ingredients:\n${recipe.ingredients.map((i) => `  - ${i}`).join("\n")}`
+            : null,
+        recipe.steps && recipe.steps.length > 0
+            ? `Steps:\n${recipe.steps.map((s, idx) => `  ${idx + 1}. ${s}`).join("\n")}`
+            : null,
+        recipe.calories_per_serving != null
+            ? `Calories/serving: ${recipe.calories_per_serving}`
+            : null,
+        recipe.protein_g_per_serving != null
+            ? `Protein/serving: ${recipe.protein_g_per_serving}g`
+            : null,
+        recipe.carbs_g_per_serving != null
+            ? `Carbs/serving: ${recipe.carbs_g_per_serving}g`
+            : null,
+        recipe.fat_g_per_serving != null
+            ? `Fat/serving: ${recipe.fat_g_per_serving}g`
+            : null,
+    ];
+    return parts.filter(Boolean).join("\n");
+}
+
+function formatMealPlan(plan: MealPlan): string {
+    const parts = [
+        `ID: ${plan.id}`,
+        `Date: ${plan.date}`,
+        `Slot: ${plan.slot}`,
+        plan.recipe_id ? `Recipe ID: ${plan.recipe_id}` : null,
+        plan.custom_description
+            ? `Description: ${plan.custom_description}`
+            : null,
+        `Servings: ${plan.servings}`,
+        plan.calories != null ? `Calories: ${plan.calories}` : null,
+        plan.protein_g != null ? `Protein: ${plan.protein_g}g` : null,
+        plan.carbs_g != null ? `Carbs: ${plan.carbs_g}g` : null,
+        plan.fat_g != null ? `Fat: ${plan.fat_g}g` : null,
+        plan.notes ? `Notes: ${plan.notes}` : null,
     ];
     return parts.filter(Boolean).join("\n");
 }
@@ -491,6 +554,565 @@ function registerTools(server: McpServer, userId: string) {
             );
         },
     );
+
+    // ---------- Recipe tools ----------
+
+    server.registerTool(
+        "save_recipe",
+        {
+            title: "Save Recipe",
+            description:
+                "Save a new recipe with ingredients, preparation steps, tags, and per-serving macros.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                name: z.string().describe("Recipe name"),
+                description: z
+                    .string()
+                    .optional()
+                    .describe("Short description of the recipe"),
+                ingredients: z
+                    .array(z.string())
+                    .optional()
+                    .describe(
+                        "List of ingredients (e.g. '200g chicken breast')",
+                    ),
+                steps: z
+                    .array(z.string())
+                    .optional()
+                    .describe("Preparation steps in order"),
+                tags: z
+                    .array(z.string())
+                    .optional()
+                    .describe(
+                        "Tags for categorisation (e.g. 'high-protein', 'quick')",
+                    ),
+                servings: z
+                    .number()
+                    .optional()
+                    .describe(
+                        "Number of servings the recipe yields (default 1)",
+                    ),
+                calories_per_serving: z
+                    .number()
+                    .optional()
+                    .describe("Calories per serving"),
+                protein_g_per_serving: z
+                    .number()
+                    .optional()
+                    .describe("Protein in grams per serving"),
+                carbs_g_per_serving: z
+                    .number()
+                    .optional()
+                    .describe("Carbohydrates in grams per serving"),
+                fat_g_per_serving: z
+                    .number()
+                    .optional()
+                    .describe("Fat in grams per serving"),
+            },
+        },
+        async (args) => {
+            return withAnalytics(
+                "save_recipe",
+                async () => {
+                    const recipe = await insertRecipe(userId, args);
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Recipe saved:\n${formatRecipe(recipe)}`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "get_recipes",
+        {
+            title: "Get Recipes",
+            description:
+                "List all saved recipes, optionally filtered by a tag.",
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                tag: z
+                    .string()
+                    .optional()
+                    .describe("Filter recipes by this tag"),
+            },
+        },
+        async ({ tag }) => {
+            return withAnalytics(
+                "get_recipes",
+                async () => {
+                    const recipes = await getRecipes(userId, tag);
+                    if (recipes.length === 0) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: tag
+                                        ? `No recipes found with tag "${tag}".`
+                                        : "No recipes saved yet.",
+                                },
+                            ],
+                        };
+                    }
+                    const text = recipes.map(formatRecipe).join("\n\n---\n\n");
+                    return { content: [{ type: "text", text }] };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "update_recipe",
+        {
+            title: "Update Recipe",
+            description: "Update fields of an existing saved recipe.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                id: z.string().describe("UUID of the recipe to update"),
+                name: z.string().optional(),
+                description: z.string().optional(),
+                ingredients: z.array(z.string()).optional(),
+                steps: z.array(z.string()).optional(),
+                tags: z.array(z.string()).optional(),
+                servings: z.number().optional(),
+                calories_per_serving: z.number().optional(),
+                protein_g_per_serving: z.number().optional(),
+                carbs_g_per_serving: z.number().optional(),
+                fat_g_per_serving: z.number().optional(),
+            },
+        },
+        async ({ id, ...fields }) => {
+            return withAnalytics(
+                "update_recipe",
+                async () => {
+                    const recipe = await updateRecipe(userId, id, fields);
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Recipe updated:\n${formatRecipe(recipe)}`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "delete_recipe",
+        {
+            title: "Delete Recipe",
+            description: "Permanently delete a saved recipe by ID.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: true,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                id: z.string().describe("UUID of the recipe to delete"),
+            },
+        },
+        async ({ id }) => {
+            return withAnalytics(
+                "delete_recipe",
+                async () => {
+                    await deleteRecipe(userId, id);
+                    return {
+                        content: [
+                            { type: "text", text: `Recipe ${id} deleted.` },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "log_saved_meal",
+        {
+            title: "Log Saved Meal",
+            description:
+                "Log a saved recipe directly as a meal entry. Macros are automatically multiplied by the number of servings eaten.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                recipe_id: z
+                    .string()
+                    .describe("UUID of the saved recipe to log"),
+                servings: z
+                    .number()
+                    .optional()
+                    .describe(
+                        "Number of servings eaten (default 1). Macros are scaled by this value.",
+                    ),
+                meal_type: z
+                    .enum(["breakfast", "lunch", "dinner", "snack"])
+                    .describe("Meal type"),
+                logged_at: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "ISO 8601 timestamp (defaults to now). Ask the user if the current time is unknown.",
+                    ),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string (e.g. 'America/New_York'). Used when logged_at is not provided.",
+                    ),
+                notes: z.string().optional().describe("Additional notes"),
+            },
+        },
+        async ({
+            recipe_id,
+            servings = 1,
+            meal_type,
+            logged_at,
+            timezone,
+            notes,
+        }) => {
+            return withAnalytics(
+                "log_saved_meal",
+                async () => {
+                    const recipe = await getRecipeById(userId, recipe_id);
+                    if (!recipe) throw new Error("Recipe not found");
+
+                    const scaled = calculateScaledMacros(recipe, servings);
+                    const description =
+                        servings === 1
+                            ? recipe.name
+                            : `${recipe.name} (×${servings})`;
+
+                    const meal = await insertMeal(userId, {
+                        description,
+                        meal_type,
+                        calories: scaled.calories ?? undefined,
+                        protein_g: scaled.protein_g ?? undefined,
+                        carbs_g: scaled.carbs_g ?? undefined,
+                        fat_g: scaled.fat_g ?? undefined,
+                        logged_at,
+                        timezone,
+                        notes,
+                    });
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Meal logged from recipe "${recipe.name}":\n${formatMeal(meal)}`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    // ---------- Meal plan tools ----------
+
+    server.registerTool(
+        "plan_meal",
+        {
+            title: "Plan Meal",
+            description:
+                "Plan a meal for a specific date and slot (breakfast/lunch/dinner/snack). When a recipe is linked, macros are auto-filled from it if not explicitly provided.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                date: z
+                    .string()
+                    .describe("Date to plan the meal for (YYYY-MM-DD)"),
+                slot: z
+                    .enum(["breakfast", "lunch", "dinner", "snack"])
+                    .describe("Meal slot"),
+                recipe_id: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "UUID of a saved recipe to link. Macros are auto-filled from the recipe when not provided.",
+                    ),
+                servings: z
+                    .number()
+                    .optional()
+                    .describe("Number of servings (default 1)"),
+                custom_description: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "Custom meal description (used when no recipe is linked)",
+                    ),
+                calories: z
+                    .number()
+                    .optional()
+                    .describe(
+                        "Override calories (auto-filled from recipe when omitted)",
+                    ),
+                protein_g: z.number().optional(),
+                carbs_g: z.number().optional(),
+                fat_g: z.number().optional(),
+                notes: z.string().optional(),
+            },
+        },
+        async (args) => {
+            return withAnalytics(
+                "plan_meal",
+                async () => {
+                    const plan = await insertMealPlan(userId, args);
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Meal planned:\n${formatMealPlan(plan)}`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+                { date: args.date },
+            );
+        },
+    );
+
+    server.registerTool(
+        "get_meal_plan",
+        {
+            title: "Get Meal Plan",
+            description:
+                "Get planned meals for a specific date or a date range (weekly plan). Provide only start_date for a single day, or both start_date and end_date for a range.",
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                start_date: z
+                    .string()
+                    .describe(
+                        "Start date (YYYY-MM-DD). Used alone for a single day.",
+                    ),
+                end_date: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "End date (YYYY-MM-DD). When provided, returns the full date range.",
+                    ),
+            },
+        },
+        async ({ start_date, end_date }) => {
+            return withAnalytics(
+                "get_meal_plan",
+                async () => {
+                    const plans = end_date
+                        ? await getMealPlanByDateRange(
+                              userId,
+                              start_date,
+                              end_date,
+                          )
+                        : await getMealPlanByDate(userId, start_date);
+
+                    if (plans.length === 0) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: end_date
+                                        ? `No meals planned between ${start_date} and ${end_date}.`
+                                        : `No meals planned for ${start_date}.`,
+                                },
+                            ],
+                        };
+                    }
+
+                    // Group by date
+                    const byDate = new Map<string, MealPlan[]>();
+                    for (const plan of plans) {
+                        const d =
+                            typeof plan.date === "string"
+                                ? plan.date.slice(0, 10)
+                                : plan.date;
+                        const existing = byDate.get(d) ?? [];
+                        existing.push(plan);
+                        byDate.set(d, existing);
+                    }
+
+                    const sections: string[] = [];
+                    for (const [date, datePlans] of [
+                        ...byDate.entries(),
+                    ].sort()) {
+                        const header = `## ${date}`;
+                        const formatted = datePlans
+                            .map(formatMealPlan)
+                            .join("\n\n---\n\n");
+                        sections.push(`${header}\n\n${formatted}`);
+                    }
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: sections.join("\n\n===\n\n"),
+                            },
+                        ],
+                    };
+                },
+                { userId },
+                { start_date, end_date },
+            );
+        },
+    );
+
+    server.registerTool(
+        "delete_planned_meal",
+        {
+            title: "Delete Planned Meal",
+            description: "Remove a planned meal entry by ID.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: true,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                id: z.string().describe("UUID of the planned meal to delete"),
+            },
+        },
+        async ({ id }) => {
+            return withAnalytics(
+                "delete_planned_meal",
+                async () => {
+                    await deleteMealPlan(userId, id);
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Planned meal ${id} deleted.`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "log_planned_meal",
+        {
+            title: "Log Planned Meal",
+            description:
+                "Log a planned meal to actual meal history. Copies the planned meal's macros and description into the meal log.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                id: z
+                    .string()
+                    .describe("UUID of the planned meal to log as eaten"),
+                logged_at: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "ISO 8601 timestamp (defaults to now). Ask the user if the current time is unknown.",
+                    ),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string (e.g. 'America/New_York'). Used when logged_at is not provided.",
+                    ),
+                notes: z
+                    .string()
+                    .optional()
+                    .describe("Additional notes for the logged meal"),
+            },
+        },
+        async ({ id, logged_at, timezone, notes }) => {
+            return withAnalytics(
+                "log_planned_meal",
+                async () => {
+                    const plan = await getMealPlanById(userId, id);
+                    if (!plan) throw new Error("Planned meal not found");
+
+                    // Resolve description: prefer custom, else look up recipe name
+                    let description = plan.custom_description;
+                    if (!description && plan.recipe_id) {
+                        const recipe = await getRecipeById(
+                            userId,
+                            plan.recipe_id,
+                        );
+                        description = recipe
+                            ? plan.servings === 1
+                                ? recipe.name
+                                : `${recipe.name} (×${plan.servings})`
+                            : null;
+                    }
+                    if (!description)
+                        description = `Planned ${plan.slot} on ${typeof plan.date === "string" ? plan.date.slice(0, 10) : plan.date}`;
+
+                    const meal = await insertMeal(userId, {
+                        description,
+                        meal_type: plan.slot,
+                        calories: plan.calories ?? undefined,
+                        protein_g: plan.protein_g ?? undefined,
+                        carbs_g: plan.carbs_g ?? undefined,
+                        fat_g: plan.fat_g ?? undefined,
+                        logged_at,
+                        timezone,
+                        notes: notes ?? plan.notes ?? undefined,
+                    });
+
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Planned meal logged:\n${formatMeal(meal)}`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
 }
 
 export const handleMcp = async (c: Context) => {
@@ -534,7 +1156,7 @@ export const handleMcp = async (c: Context) => {
     const server = new McpServer(
         {
             name: "nutrition-mcp",
-            version: "1.6.0",
+            version: "1.7.0",
             icons: [
                 {
                     src: `${baseUrl}/favicon.ico`,
