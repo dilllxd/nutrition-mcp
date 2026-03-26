@@ -1,9 +1,8 @@
 FROM oven/bun:1.2 AS base
 WORKDIR /app
-COPY package.json bun.lock ./
-# bun install regenerates bun.lock (required after removing @supabase/supabase-js)
-RUN bun install
-COPY . .
+COPY --chown=bun:bun package.json bun.lock ./
+RUN bun install --frozen-lockfile
+COPY --chown=bun:bun . .
 USER bun
 EXPOSE 8080
-CMD ["bun", "src/index.ts"]
+CMD ["bun", "/app/src/index.ts"]
