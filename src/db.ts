@@ -574,11 +574,280 @@ export async function deleteMealPlan(
     await Bun.sql`DELETE FROM meal_plan WHERE id = ${id} AND user_id = ${userId}`;
 }
 
+// ---------- Weight logs ----------
+
+export interface WeightEntry {
+    id: string;
+    user_id: string;
+    weight_lb: number;
+    date: string;
+    notes: string | null;
+    created_at: string;
+}
+
+export async function insertWeight(
+    userId: string,
+    weight_lb: number,
+    date: string,
+    notes?: string,
+): Promise<WeightEntry> {
+    const notesVal = notes ?? null;
+    const rows = await Bun.sql`
+        INSERT INTO weight_logs (user_id, weight_lb, date, notes)
+        VALUES (${userId}, ${weight_lb}, ${date}::date, ${notesVal})
+        RETURNING *
+    `;
+    if (rows.length === 0) throw new Error("Failed to insert weight entry");
+    return rows[0] as WeightEntry;
+}
+
+export async function getLatestWeight(
+    userId: string,
+): Promise<WeightEntry | null> {
+    const rows = await Bun.sql`
+        SELECT * FROM weight_logs
+        WHERE user_id = ${userId}
+        ORDER BY date DESC, created_at DESC
+        LIMIT 1
+    `;
+    if (rows.length === 0) return null;
+    return rows[0] as WeightEntry;
+}
+
+export async function getWeightHistory(
+    userId: string,
+    limit?: number,
+    days?: number,
+): Promise<WeightEntry[]> {
+    if (days !== undefined) {
+        const rows = await Bun.sql`
+            SELECT * FROM weight_logs
+            WHERE user_id = ${userId}
+              AND date >= (CURRENT_DATE - ${days}::int)
+            ORDER BY date DESC, created_at DESC
+        `;
+        return rows as WeightEntry[];
+    }
+    const lim = limit ?? 10;
+    const rows = await Bun.sql`
+        SELECT * FROM weight_logs
+        WHERE user_id = ${userId}
+        ORDER BY date DESC, created_at DESC
+        LIMIT ${lim}
+    `;
+    return rows as WeightEntry[];
+}
+
+// Average days in a month (365.25 / 12), used for monthly weight-loss rate
+const DAYS_PER_MONTH_AVG = 30.44;
+
+export interface WeightStats {
+    total_lost_lb: number | null;
+    avg_loss_per_week_lb: number | null;
+    avg_loss_per_month_lb: number | null;
+    entry_count: number;
+}
+
+export async function getWeightStats(userId: string): Promise<WeightStats> {
+    const rows = await Bun.sql`
+        SELECT weight_lb, date
+        FROM weight_logs
+        WHERE user_id = ${userId}
+        ORDER BY date ASC, created_at ASC
+    `;
+
+    if (rows.length < 2) {
+        return {
+            total_lost_lb: null,
+            avg_loss_per_week_lb: null,
+            avg_loss_per_month_lb: null,
+            entry_count: rows.length,
+        };
+    }
+
+    const first = rows[0];
+    const last = rows[rows.length - 1];
+    const totalLost = (first.weight_lb as number) - (last.weight_lb as number);
+    const daysBetween =
+        (new Date(last.date as string).getTime() -
+            new Date(first.date as string).getTime()) /
+        (1000 * 60 * 60 * 24);
+
+    const avgPerWeek = daysBetween > 0 ? (totalLost / daysBetween) * 7 : null;
+    const avgPerMonth =
+        daysBetween > 0 ? (totalLost / daysBetween) * DAYS_PER_MONTH_AVG : null;
+
+    return {
+        total_lost_lb: Math.round(totalLost * 100) / 100,
+        avg_loss_per_week_lb:
+            avgPerWeek !== null ? Math.round(avgPerWeek * 100) / 100 : null,
+        avg_loss_per_month_lb:
+            avgPerMonth !== null ? Math.round(avgPerMonth * 100) / 100 : null,
+        entry_count: rows.length,
+    };
+}
+
+export interface GoalProgress {
+    starting_weight_lb: number | null;
+    current_weight_lb: number | null;
+    target_lb: number;
+    total_lost_lb: number | null;
+    lbs_remaining: number | null;
+    percent_complete: number | null;
+}
+
+export async function getGoalProgress(
+    userId: string,
+    target_lb: number,
+): Promise<GoalProgress> {
+    const rows = await Bun.sql`
+        SELECT weight_lb, date
+        FROM weight_logs
+        WHERE user_id = ${userId}
+        ORDER BY date ASC, created_at ASC
+    `;
+
+    if (rows.length === 0) {
+        return {
+            starting_weight_lb: null,
+            current_weight_lb: null,
+            target_lb,
+            total_lost_lb: null,
+            lbs_remaining: null,
+            percent_complete: null,
+        };
+    }
+
+    const startingWeight = rows[0].weight_lb as number;
+    const currentWeight = rows[rows.length - 1].weight_lb as number;
+    const totalLost = startingWeight - currentWeight;
+    const lbsRemaining = currentWeight - target_lb;
+    const totalGoal = startingWeight - target_lb;
+    const percentComplete =
+        totalGoal > 0 ? Math.round((totalLost / totalGoal) * 10000) / 100 : 0;
+
+    return {
+        starting_weight_lb: Math.round(startingWeight * 100) / 100,
+        current_weight_lb: Math.round(currentWeight * 100) / 100,
+        target_lb,
+        total_lost_lb: Math.round(totalLost * 100) / 100,
+        lbs_remaining: Math.round(lbsRemaining * 100) / 100,
+        percent_complete: percentComplete,
+    };
+}
+
+export async function updateWeight(
+    userId: string,
+    new_weight_lb: number,
+    id?: string,
+    date?: string,
+): Promise<WeightEntry> {
+    let existing;
+    if (id) {
+        existing = await Bun.sql`
+            SELECT * FROM weight_logs WHERE id = ${id} AND user_id = ${userId}
+        `;
+    } else if (date) {
+        existing = await Bun.sql`
+            SELECT * FROM weight_logs
+            WHERE user_id = ${userId} AND date = ${date}::date
+            ORDER BY created_at DESC
+            LIMIT 1
+        `;
+    } else {
+        throw new Error("Either id or date must be provided");
+    }
+
+    if (existing.length === 0) throw new Error("Weight entry not found");
+
+    const entryId = existing[0].id as string;
+    const rows = await Bun.sql`
+        UPDATE weight_logs
+        SET weight_lb = ${new_weight_lb}
+        WHERE id = ${entryId} AND user_id = ${userId}
+        RETURNING *
+    `;
+    if (rows.length === 0) throw new Error("Failed to update weight entry");
+    return rows[0] as WeightEntry;
+}
+
+export async function deleteWeight(
+    userId: string,
+    id?: string,
+    date?: string,
+): Promise<void> {
+    if (id) {
+        await Bun.sql`DELETE FROM weight_logs WHERE id = ${id} AND user_id = ${userId}`;
+    } else if (date) {
+        await Bun.sql`
+            DELETE FROM weight_logs
+            WHERE user_id = ${userId} AND date = ${date}::date
+        `;
+    } else {
+        throw new Error("Either id or date must be provided");
+    }
+}
+
+// ---------- Water logs ----------
+
+export interface WaterEntry {
+    id: string;
+    user_id: string;
+    amount_fl_oz: number;
+    date: string;
+    created_at: string;
+}
+
+export async function insertWater(
+    userId: string,
+    amount_fl_oz: number,
+    date: string,
+): Promise<WaterEntry> {
+    const rows = await Bun.sql`
+        INSERT INTO water_logs (user_id, amount_fl_oz, date)
+        VALUES (${userId}, ${amount_fl_oz}, ${date}::date)
+        RETURNING *
+    `;
+    if (rows.length === 0) throw new Error("Failed to insert water entry");
+    return rows[0] as WaterEntry;
+}
+
+export async function getWaterToday(
+    userId: string,
+    date: string,
+): Promise<number> {
+    const rows = await Bun.sql`
+        SELECT COALESCE(SUM(amount_fl_oz), 0) AS total
+        FROM water_logs
+        WHERE user_id = ${userId} AND date = ${date}::date
+    `;
+    return Number(rows[0]?.total ?? 0);
+}
+
+// ---------- Meal search ----------
+
+export async function searchMeals(
+    userId: string,
+    query: string,
+): Promise<Meal[]> {
+    const pattern = `%${query}%`;
+    const rows = await Bun.sql`
+        SELECT * FROM meals
+        WHERE user_id = ${userId}
+          AND (description ILIKE ${pattern} OR notes ILIKE ${pattern})
+        ORDER BY logged_at DESC
+    `;
+    return rows as Meal[];
+}
+
 // ---------- Delete all user data ----------
 
 export async function deleteAllUserData(userId: string): Promise<void> {
     // tool_analytics has no FK to users, delete manually
     await Bun.sql`DELETE FROM tool_analytics WHERE user_id = ${userId}`;
+    // weight_logs and water_logs are cascaded via users FK, but delete explicitly for clarity
+    await Bun.sql`DELETE FROM weight_logs WHERE user_id = ${userId}`;
+    await Bun.sql`DELETE FROM water_logs WHERE user_id = ${userId}`;
     // meal_plan and recipes are cascaded via users FK, but delete explicitly for clarity
     await Bun.sql`DELETE FROM meal_plan WHERE user_id = ${userId}`;
     await Bun.sql`DELETE FROM recipes WHERE user_id = ${userId}`;

@@ -86,19 +86,19 @@ Use `http://localhost:8080/mcp` (or your server's public URL) as the Remote MCP 
 
 ## Environment Variables
 
-| Variable              | Description                                            |
-| --------------------- | ------------------------------------------------------ |
-| `DATABASE_URL`        | PostgreSQL connection string                           |
-| `OAUTH_CLIENT_ID`     | Random string for OAuth client identification          |
-| `OAUTH_CLIENT_SECRET` | Random string for OAuth client authentication          |
-| `PORT`                | Server port (default: `8080`)                          |
+| Variable              | Description                                             |
+| --------------------- | ------------------------------------------------------- |
+| `DATABASE_URL`        | PostgreSQL connection string                            |
+| `OAUTH_CLIENT_ID`     | Random string for OAuth client identification           |
+| `OAUTH_CLIENT_SECRET` | Random string for OAuth client authentication           |
+| `PORT`                | Server port (default: `8080`)                           |
 | `ALLOWED_ORIGINS`     | Comma-separated list of additional allowed CORS origins |
 
 For Docker Compose, also set:
 
-| Variable            | Description                           |
-| ------------------- | ------------------------------------- |
-| `POSTGRES_PASSWORD` | Password for the PostgreSQL database  |
+| Variable            | Description                          |
+| ------------------- | ------------------------------------ |
+| `POSTGRES_PASSWORD` | Password for the PostgreSQL database |
 
 ---
 

@@ -20,9 +20,20 @@ import {
     getMealPlanById,
     deleteMealPlan,
     calculateScaledMacros,
+    insertWeight,
+    getLatestWeight,
+    getWeightHistory,
+    getWeightStats,
+    getGoalProgress,
+    updateWeight,
+    deleteWeight,
+    insertWater,
+    getWaterToday,
+    searchMeals,
     type Meal,
     type Recipe,
     type MealPlan,
+    type WeightEntry,
 } from "./db.js";
 import { withAnalytics } from "./analytics.js";
 
@@ -115,6 +126,19 @@ function formatMealPlan(plan: MealPlan): string {
     ];
     return parts.filter(Boolean).join("\n");
 }
+
+function formatWeightEntry(entry: WeightEntry): string {
+    const parts = [
+        `ID: ${entry.id}`,
+        `Date: ${typeof entry.date === "string" ? entry.date.slice(0, 10) : entry.date}`,
+        `Weight: ${entry.weight_lb} lbs`,
+        entry.notes ? `Notes: ${entry.notes}` : null,
+    ];
+    return parts.filter(Boolean).join("\n");
+}
+
+// Default target weight in pounds for goal progress calculations
+const DEFAULT_TARGET_WEIGHT_LB = 130;
 
 function registerTools(server: McpServer, userId: string) {
     server.registerTool(
@@ -1113,6 +1137,500 @@ function registerTools(server: McpServer, userId: string) {
             );
         },
     );
+
+    // ---------- Weight tracking tools ----------
+
+    server.registerTool(
+        "log_weight",
+        {
+            title: "Log Weight",
+            description:
+                "Log a weigh-in entry. Use for weekly Thursday weigh-ins or mid-week checks.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                weight_lb: z.number().describe("Body weight in pounds"),
+                date: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "Date of the weigh-in (YYYY-MM-DD, defaults to today). Ask the user if today's date is unknown.",
+                    ),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string (e.g. 'America/New_York'). Used to determine today's date when date is not provided.",
+                    ),
+                notes: z
+                    .string()
+                    .optional()
+                    .describe("Optional notes about this weigh-in"),
+            },
+        },
+        async ({ weight_lb, date, timezone, notes }) => {
+            return withAnalytics(
+                "log_weight",
+                async () => {
+                    const dateVal = date ?? todayDate(timezone);
+                    const entry = await insertWeight(
+                        userId,
+                        weight_lb,
+                        dateVal,
+                        notes,
+                    );
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Weight logged:\n${formatWeightEntry(entry)}`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "get_latest_weight",
+        {
+            title: "Get Latest Weight",
+            description:
+                "Get the most recent weigh-in entry. Useful for pulling the current baseline into the daily brief or summaries.",
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {},
+        },
+        async () => {
+            return withAnalytics(
+                "get_latest_weight",
+                async () => {
+                    const entry = await getLatestWeight(userId);
+                    if (!entry) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: "No weight entries found.",
+                                },
+                            ],
+                        };
+                    }
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: formatWeightEntry(entry),
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "get_weight_history",
+        {
+            title: "Get Weight History",
+            description:
+                "Get a list of weigh-in entries. Provide either limit (most recent N entries) or days (entries from the last N days).",
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                limit: z
+                    .number()
+                    .optional()
+                    .describe(
+                        "Return the most recent N entries (default 10). Ignored when days is provided.",
+                    ),
+                days: z
+                    .number()
+                    .optional()
+                    .describe(
+                        "Return entries from the last N days. Takes precedence over limit.",
+                    ),
+            },
+        },
+        async ({ limit, days }) => {
+            return withAnalytics(
+                "get_weight_history",
+                async () => {
+                    const entries = await getWeightHistory(userId, limit, days);
+                    if (entries.length === 0) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: "No weight entries found.",
+                                },
+                            ],
+                        };
+                    }
+                    const text = entries
+                        .map(formatWeightEntry)
+                        .join("\n\n---\n\n");
+                    return { content: [{ type: "text", text }] };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "get_weight_stats",
+        {
+            title: "Get Weight Stats",
+            description:
+                "Get weight loss statistics: total lost, average loss per week, and average loss per month. Useful for tracking progress toward a target loss rate.",
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {},
+        },
+        async () => {
+            return withAnalytics(
+                "get_weight_stats",
+                async () => {
+                    const stats = await getWeightStats(userId);
+                    if (stats.entry_count < 2) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text:
+                                        stats.entry_count === 0
+                                            ? "No weight entries found. Log at least two weigh-ins to see stats."
+                                            : "Only one weight entry found. Log at least two weigh-ins to calculate stats.",
+                                },
+                            ],
+                        };
+                    }
+                    const lines = [
+                        `Total lost: ${stats.total_lost_lb} lbs`,
+                        `Average loss per week: ${stats.avg_loss_per_week_lb} lbs`,
+                        `Average loss per month: ${stats.avg_loss_per_month_lb} lbs`,
+                        `Based on ${stats.entry_count} weigh-ins`,
+                    ];
+                    return {
+                        content: [{ type: "text", text: lines.join("\n") }],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "get_goal_progress",
+        {
+            title: "Get Goal Progress",
+            description:
+                "Get progress toward a weight loss goal: total lost, lbs remaining, and percentage of goal completed.",
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                target_lb: z
+                    .number()
+                    .optional()
+                    .describe(
+                        `Target weight in pounds (default ${DEFAULT_TARGET_WEIGHT_LB})`,
+                    ),
+            },
+        },
+        async ({ target_lb = DEFAULT_TARGET_WEIGHT_LB }) => {
+            return withAnalytics(
+                "get_goal_progress",
+                async () => {
+                    const progress = await getGoalProgress(userId, target_lb);
+                    if (progress.current_weight_lb === null) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: "No weight entries found. Log a weigh-in to track goal progress.",
+                                },
+                            ],
+                        };
+                    }
+                    const lines = [
+                        `Target: ${progress.target_lb} lbs`,
+                        `Starting weight: ${progress.starting_weight_lb} lbs`,
+                        `Current weight: ${progress.current_weight_lb} lbs`,
+                        `Total lost: ${progress.total_lost_lb} lbs`,
+                        `Remaining: ${progress.lbs_remaining} lbs`,
+                        `Goal completion: ${progress.percent_complete}%`,
+                    ];
+                    return {
+                        content: [{ type: "text", text: lines.join("\n") }],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "update_weight",
+        {
+            title: "Update Weight",
+            description:
+                "Fix a weight entry that was logged incorrectly. Provide either the entry ID or the date of the entry to update.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                new_weight_lb: z
+                    .number()
+                    .describe("Corrected weight in pounds"),
+                id: z
+                    .string()
+                    .optional()
+                    .describe("UUID of the weight entry to update"),
+                date: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "Date of the entry to update (YYYY-MM-DD). Used when id is not provided.",
+                    ),
+            },
+        },
+        async ({ new_weight_lb, id, date }) => {
+            return withAnalytics(
+                "update_weight",
+                async () => {
+                    const entry = await updateWeight(
+                        userId,
+                        new_weight_lb,
+                        id,
+                        date,
+                    );
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Weight entry updated:\n${formatWeightEntry(entry)}`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "delete_weight",
+        {
+            title: "Delete Weight",
+            description:
+                "Remove an accidental or duplicate weight entry. Provide either the entry ID or the date.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: true,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                id: z
+                    .string()
+                    .optional()
+                    .describe("UUID of the weight entry to delete"),
+                date: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "Date of the entry to delete (YYYY-MM-DD). Deletes all entries for that date when id is not provided.",
+                    ),
+            },
+        },
+        async ({ id, date }) => {
+            return withAnalytics(
+                "delete_weight",
+                async () => {
+                    await deleteWeight(userId, id, date);
+                    const label = id ?? date ?? "entry";
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Weight entry ${label} deleted.`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    // ---------- Hydration tracking tools ----------
+
+    server.registerTool(
+        "log_water",
+        {
+            title: "Log Water",
+            description:
+                "Log a water intake entry in fluid ounces to track daily hydration.",
+            annotations: {
+                readOnlyHint: false,
+                destructiveHint: false,
+                idempotentHint: false,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                amount_fl_oz: z
+                    .number()
+                    .describe("Amount of water consumed in fluid ounces"),
+                date: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "Date to log the intake for (YYYY-MM-DD, defaults to today). Ask the user if today's date is unknown.",
+                    ),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string (e.g. 'America/New_York'). Used to determine today's date when date is not provided.",
+                    ),
+            },
+        },
+        async ({ amount_fl_oz, date, timezone }) => {
+            return withAnalytics(
+                "log_water",
+                async () => {
+                    const dateVal = date ?? todayDate(timezone);
+                    await insertWater(userId, amount_fl_oz, dateVal);
+                    const total = await getWaterToday(userId, dateVal);
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Logged ${amount_fl_oz} fl oz. Total for ${dateVal}: ${total} fl oz.`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    server.registerTool(
+        "get_water_today",
+        {
+            title: "Get Water Today",
+            description:
+                "Get total water intake for the current day (or a specified date) in fluid ounces.",
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                date: z
+                    .string()
+                    .optional()
+                    .describe("Date to check (YYYY-MM-DD, defaults to today)."),
+                timezone: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "IANA timezone string (e.g. 'America/New_York'). Used to determine today's date when date is not provided.",
+                    ),
+            },
+        },
+        async ({ date, timezone }) => {
+            return withAnalytics(
+                "get_water_today",
+                async () => {
+                    const dateVal = date ?? todayDate(timezone);
+                    const total = await getWaterToday(userId, dateVal);
+                    return {
+                        content: [
+                            {
+                                type: "text",
+                                text: `Water intake for ${dateVal}: ${total} fl oz`,
+                            },
+                        ],
+                    };
+                },
+                { userId },
+            );
+        },
+    );
+
+    // ---------- Historical search ----------
+
+    server.registerTool(
+        "search_meals",
+        {
+            title: "Search Meals",
+            description:
+                "Search all past meal descriptions and notes by keyword. Returns matching entries with macros, dates, and notes.",
+            annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+            },
+            inputSchema: {
+                query: z
+                    .string()
+                    .describe(
+                        "Search term to match against meal descriptions and notes (e.g. 'pizza', 'goldfish')",
+                    ),
+            },
+        },
+        async ({ query }) => {
+            return withAnalytics(
+                "search_meals",
+                async () => {
+                    const meals = await searchMeals(userId, query);
+                    if (meals.length === 0) {
+                        return {
+                            content: [
+                                {
+                                    type: "text",
+                                    text: `No meals found matching "${query}".`,
+                                },
+                            ],
+                        };
+                    }
+                    const text = meals.map(formatMeal).join("\n\n---\n\n");
+                    return { content: [{ type: "text", text }] };
+                },
+                { userId },
+            );
+        },
+    );
 }
 
 export const handleMcp = async (c: Context) => {
@@ -1156,7 +1674,7 @@ export const handleMcp = async (c: Context) => {
     const server = new McpServer(
         {
             name: "nutrition-mcp",
-            version: "1.7.0",
+            version: "1.8.0",
             icons: [
                 {
                     src: `${baseUrl}/favicon.ico`,
