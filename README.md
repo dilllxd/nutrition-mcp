@@ -4,6 +4,8 @@ A remote MCP server for personal nutrition tracking — log meals, track macros,
 
 ## Quick Start
 
+### Hosted (no setup required)
+
 Already hosted and ready to use — just connect it to your MCP client:
 
 ```
@@ -22,10 +24,10 @@ Read the story behind it: [How I Replaced MyFitnessPal and Other Apps with a Sin
 
 ## Tech Stack
 
-- **Bun** — runtime and package manager
+- **Bun** — runtime and package manager (v1.2+)
 - **Hono** — HTTP framework
 - **MCP SDK** — Model Context Protocol over Streamable HTTP
-- **Supabase** — PostgreSQL database + user authentication
+- **PostgreSQL** — database (self-hosted via Docker)
 - **OAuth 2.0** — authentication for Claude.ai connectors
 
 ## MCP Tools
@@ -41,112 +43,64 @@ Read the story behind it: [How I Replaced MyFitnessPal and Other Apps with a Sin
 | `get_meals_by_date_range` | Get meals between two dates (inclusive)                    |
 | `delete_account`          | Permanently delete account and all associated data         |
 
-## Supabase Setup
+## Self-Hosting with Docker Compose
 
-1. Create a [Supabase](https://supabase.com) project
-2. Enable **Email Auth** (Authentication → Providers → Email) and disable email confirmation
-3. Run the following SQL in the SQL Editor:
+The easiest way to self-host is with Docker Compose. It starts the app and a PostgreSQL database together and automatically initialises the schema.
 
-```sql
--- Meals
-CREATE TABLE meals (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id uuid NOT NULL REFERENCES auth.users(id),
-    logged_at timestamptz NOT NULL DEFAULT now(),
-    meal_type text CHECK (meal_type IN ('breakfast', 'lunch', 'dinner', 'snack')),
-    description text NOT NULL,
-    calories integer,
-    protein_g numeric,
-    carbs_g numeric,
-    fat_g numeric,
-    notes text
-);
+### 1. Generate OAuth credentials
 
--- OAuth access tokens
-CREATE TABLE oauth_tokens (
-    token text PRIMARY KEY,
-    user_id uuid NOT NULL REFERENCES auth.users(id),
-    expires_at timestamptz NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- OAuth authorization codes (short-lived, single-use)
-CREATE TABLE auth_codes (
-    code text PRIMARY KEY,
-    redirect_uri text NOT NULL,
-    user_id uuid NOT NULL REFERENCES auth.users(id),
-    code_challenge text,
-    expires_at timestamptz NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- Refresh tokens
-CREATE TABLE refresh_tokens (
-    token text PRIMARY KEY,
-    user_id uuid NOT NULL REFERENCES auth.users(id),
-    expires_at timestamptz NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now()
-);
-
--- Tool analytics
-CREATE TABLE tool_analytics (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id VARCHAR(255) NOT NULL,
-    tool_name VARCHAR(100) NOT NULL,
-    success BOOLEAN NOT NULL,
-    duration_ms INTEGER NOT NULL,
-    error_category VARCHAR(50),
-    date_range_days INTEGER,
-    mcp_session_id VARCHAR(255),
-    invoked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_tool_analytics_user_id ON tool_analytics(user_id);
-CREATE INDEX idx_tool_analytics_tool_name ON tool_analytics(tool_name);
-CREATE INDEX idx_tool_analytics_invoked_at ON tool_analytics(invoked_at);
-CREATE INDEX idx_tool_analytics_user_tool ON tool_analytics(user_id, tool_name);
-
--- Enable Row Level Security on all tables
-ALTER TABLE meals ENABLE ROW LEVEL SECURITY;
-ALTER TABLE oauth_tokens ENABLE ROW LEVEL SECURITY;
-ALTER TABLE auth_codes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE refresh_tokens ENABLE ROW LEVEL SECURITY;
-
--- Allow access for the service role
-CREATE POLICY "Allow all for service role" ON meals
-    FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all for service role" ON oauth_tokens
-    FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all for service role" ON auth_codes
-    FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all for service role" ON refresh_tokens
-    FOR ALL USING (true) WITH CHECK (true);
-ALTER TABLE tool_analytics ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Service role has full access to tool_analytics" ON tool_analytics
-    FOR ALL TO service_role USING (true) WITH CHECK (true);
+```bash
+echo "OAUTH_CLIENT_ID=$(openssl rand -hex 16)"
+echo "OAUTH_CLIENT_SECRET=$(openssl rand -hex 32)"
 ```
 
-4. Copy the **service role key** from Project Settings → API and use it as `SUPABASE_SECRET_KEY`
+### 2. Create your `.env` file
+
+```bash
+cp .env.example .env
+```
+
+Fill in the generated OAuth credentials and choose a strong `POSTGRES_PASSWORD`:
+
+```
+DATABASE_URL=postgres://nutrition:yourpassword@db:5432/nutrition
+POSTGRES_PASSWORD=yourpassword
+OAUTH_CLIENT_ID=<generated>
+OAUTH_CLIENT_SECRET=<generated>
+PORT=8080
+```
+
+### 3. Start the stack
+
+```bash
+docker compose up -d
+```
+
+The app will be available at `http://localhost:8080`. The database schema is applied automatically on first start via `init.sql`.
+
+### 4. Connect to your MCP client
+
+Use `http://localhost:8080/mcp` (or your server's public URL) as the Remote MCP Server URL.
+
+---
 
 ## Environment Variables
 
-| Variable              | Description                                   |
-| --------------------- | --------------------------------------------- |
-| `SUPABASE_URL`        | Your Supabase project URL                     |
-| `SUPABASE_SECRET_KEY` | Supabase service role key (bypasses RLS)      |
-| `OAUTH_CLIENT_ID`     | Random string for OAuth client identification |
-| `OAUTH_CLIENT_SECRET` | Random string for OAuth client authentication |
-| `PORT`                | Server port (default: `8080`)                 |
+| Variable              | Description                                            |
+| --------------------- | ------------------------------------------------------ |
+| `DATABASE_URL`        | PostgreSQL connection string                           |
+| `OAUTH_CLIENT_ID`     | Random string for OAuth client identification          |
+| `OAUTH_CLIENT_SECRET` | Random string for OAuth client authentication          |
+| `PORT`                | Server port (default: `8080`)                          |
+| `ALLOWED_ORIGINS`     | Comma-separated list of additional allowed CORS origins |
 
-> **Note:** The HTML files in `public/` include a Google Analytics tag (`G-1K4HRB2R8X`). If you're self-hosting, remove or replace the gtag snippet in `public/index.html`, `public/login.html`, and `public/privacy.html`.
+For Docker Compose, also set:
 
-Generate OAuth credentials:
+| Variable            | Description                           |
+| ------------------- | ------------------------------------- |
+| `POSTGRES_PASSWORD` | Password for the PostgreSQL database  |
 
-```bash
-openssl rand -hex 16   # use as OAUTH_CLIENT_ID
-openssl rand -hex 32   # use as OAUTH_CLIENT_SECRET
-```
+---
 
 ## Development
 
@@ -156,6 +110,23 @@ cp .env.example .env   # fill in your credentials
 bun run dev             # starts with hot reload on http://localhost:8080
 ```
 
+You can run a local PostgreSQL with Docker:
+
+```bash
+docker run -d \
+  --name nutrition-db \
+  -e POSTGRES_DB=nutrition \
+  -e POSTGRES_USER=nutrition \
+  -e POSTGRES_PASSWORD=nutrition \
+  -p 5432:5432 \
+  -v "$(pwd)/init.sql:/docker-entrypoint-initdb.d/init.sql:ro" \
+  postgres:16-alpine
+```
+
+Then set `DATABASE_URL=postgres://nutrition:nutrition@localhost:5432/nutrition` in your `.env`.
+
+---
+
 ## Connect to Claude.ai
 
 1. Open [Claude.ai](https://claude.ai) and click **Customize**
@@ -163,9 +134,11 @@ bun run dev             # starts with hot reload on http://localhost:8080
 3. Click **Add custom connector**
 4. Fill in:
     - **Name**: Nutrition Tracker
-    - **Remote MCP Server URL**: `https://nutrition-mcp.com/mcp`
+    - **Remote MCP Server URL**: `https://your-domain/mcp`
 5. Click **Connect** — sign in or register when prompted
 6. After signing in, Claude can use your nutrition tools. If you reconnect later, sign in with the same email and password to keep your data.
+
+---
 
 ## API Endpoints
 
@@ -180,14 +153,21 @@ bun run dev             # starts with hot reload on http://localhost:8080
 | `GET /favicon.ico`                            | Server icon                            |
 | `ALL /mcp`                                    | MCP endpoint (authenticated)           |
 
-## Deploy
+---
 
-The project includes a `Dockerfile` for container-based deployment.
+## Deploy (standalone Docker)
 
-1. Push your repo to a hosting provider (e.g. DigitalOcean App Platform)
-2. Set the environment variables listed above
-3. The app auto-detects the Dockerfile and deploys on port `8080`
-4. Point your domain to the deployed URL
+```bash
+docker build -t nutrition-mcp .
+docker run -d \
+  -p 8080:8080 \
+  -e DATABASE_URL=postgres://user:pass@your-db-host:5432/nutrition \
+  -e OAUTH_CLIENT_ID=your-client-id \
+  -e OAUTH_CLIENT_SECRET=your-client-secret \
+  nutrition-mcp
+```
+
+---
 
 ## License
 

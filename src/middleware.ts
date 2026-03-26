@@ -1,5 +1,5 @@
 import type { Context, Next } from "hono";
-import { getUserIdByToken } from "./supabase.js";
+import { getUserIdByToken } from "./db.js";
 
 function getBaseUrl(c: Context): string {
     const proto = c.req.header("x-forwarded-proto") || "http";

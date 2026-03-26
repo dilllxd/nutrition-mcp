@@ -1,7 +1,8 @@
-FROM oven/bun:1 AS base
+FROM oven/bun:1.2 AS base
 WORKDIR /app
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+# bun install regenerates bun.lock (required after removing @supabase/supabase-js)
+RUN bun install
 COPY . .
 USER bun
 EXPOSE 8080

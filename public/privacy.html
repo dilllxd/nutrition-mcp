@@ -16,19 +16,6 @@
             rel="stylesheet"
         />
         <link rel="stylesheet" href="/styles.css" />
-        <script
-            async
-            src="https://www.googletagmanager.com/gtag/js?id=G-1K4HRB2R8X"
-        ></script>
-        <script>
-            window.dataLayer = window.dataLayer || [];
-            function gtag() {
-                dataLayer.push(arguments);
-            }
-            gtag("js", new Date());
-            gtag("config", "G-1K4HRB2R8X");
-            gtag("config", "AW-18014886578");
-        </script>
     </head>
     <body>
         <div class="page-wrap">
@@ -44,8 +31,7 @@
                         <p>
                             When you register, we store your
                             <strong>email address</strong> and a securely hashed
-                            password via Supabase Auth. When you use the
-                            service, we store your
+                            password. When you use the service, we store your
                             <strong>meal logs</strong> (description, meal type,
                             calories, macros, notes, and timestamps).
                         </p>
@@ -64,15 +50,9 @@
                     <div class="legal-section">
                         <h2 class="legal-heading">Where it's stored</h2>
                         <p>
-                            All data is stored in
-                            <a
-                                href="https://supabase.com"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                >Supabase</a
-                            >
-                            (PostgreSQL). Authentication is handled by Supabase
-                            Auth. The server is hosted on DigitalOcean.
+                            All data is stored in a self-hosted PostgreSQL
+                            database. Authentication is handled by the server
+                            itself using secure password hashing.
                         </p>
                     </div>
 

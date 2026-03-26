@@ -9,7 +9,7 @@ import {
     storeRefreshToken,
     consumeRefreshToken,
     registerClient,
-} from "./supabase.js";
+} from "./db.js";
 
 const SESSION_TTL_MS = 10 * 60 * 1000;
 
