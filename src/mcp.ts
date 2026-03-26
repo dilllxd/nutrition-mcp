@@ -10,7 +10,7 @@ import {
     updateMeal,
     deleteAllUserData,
     type Meal,
-} from "./supabase.js";
+} from "./db.js";
 import { withAnalytics } from "./analytics.js";
 
 const sessions = new Map<
