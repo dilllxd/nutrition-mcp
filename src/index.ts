@@ -44,17 +44,8 @@ app.use(
     "*",
     cors({
         origin: (origin) => {
-            if (!origin) return null;
-            if (
-                origin.match(/^https?:\/\/localhost(:\d+)?$/) ||
-                origin.match(/^https?:\/\/127\.0\.0\.1(:\d+)?$/)
-            ) {
-                return origin;
-            }
-            const allowed =
-                process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()) ??
-                [];
-            return allowed.includes(origin) ? origin : null;
+            // Allow all origins for MCP connector compatibility
+            return origin || "*";
         },
         allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
         allowHeaders: [
